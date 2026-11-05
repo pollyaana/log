@@ -1,0 +1,100 @@
+--- original/decision_model.cpp	2026-11-05 21:58:50.174444212 +0300
++++ decision_model.cpp	2026-11-05 21:59:26.984366693 +0300
+@@ -2,6 +2,8 @@
+ #include <utils.h>
+ #include <algorithm>
+ #include <string>
++#include <sstream>    // FIX(A1-3): std::stringstream использовался без include
++#include <stdexcept>
+ #include <matrices_utils.h>
+ 
+ using namespace matrices_utils;
+@@ -57,6 +59,8 @@
+ 
+ void DecisionModel::setCriteriaComparisons(const Eigen::MatrixXd &criteriaComparisons,
+ 										   const ComparisionMatrixView &criteriaMatrixView) {
++	if (criteriaComparisons.rows() != criteriaCount() || criteriaComparisons.cols() != criteriaCount())  // FIX(A1-5)
++		throw std::invalid_argument("setCriteriaComparisons: matrix must be m x m (m = criteriaCount())");
+ 	criteriaComparisons_ = criteriaComparisons;
+ 	criteriaComparisonsMatrixView_ = criteriaMatrixView;
+ 	criteriaComparisonMatrixIsInit_ = true;
+@@ -88,7 +92,12 @@
+ 
+ void DecisionModel::setAlternativesCompsAt(const Eigen::MatrixXd &alternativesComps,
+ 										   const ComparisionMatrixView &alternativesCompsView, int index) {
+-	if (alternativesComps_.size() != criteriaCount()) {
++	// FIX(A1-5): размеры не проверялись — несогласованный ввод падал глубоко внутри метода
++	if (index < 0 || index >= criteriaCount())
++		throw std::out_of_range("setAlternativesCompsAt: bad criterion index");
++	if (alternativesComps.rows() != alternativesCount() || alternativesComps.cols() != alternativesCount())
++		throw std::invalid_argument("setAlternativesCompsAt: matrix must be n x n (n = alternativesCount())");
++	if (alternativesComps_.size() != static_cast<size_t>(criteriaCount())) {
+ 		alternativesComps_.resize(criteriaCount());
+ 		alternativesCompsViews_.resize(criteriaCount());
+ 		alternativesCompsIsInit_.resize(criteriaCount());
+@@ -107,7 +116,7 @@
+ }
+ 
+ bool DecisionModel::compsIsInitAt(int index) const {
+-	if (index < alternativesCompsIsInit_.size())
++	if (index >= 0 && static_cast<size_t>(index) < alternativesCompsIsInit_.size())  // FIX(A1-4): index < 0, int/size_t
+ 		return alternativesCompsIsInit_.at(index);
+ 	return false;
+ }
+@@ -196,28 +205,40 @@
+ 	return ss.str();
+ }
+ 
++// FIX(A1-1): в оригинале alternativesCompsIsInit_ не уменьшался, а матрицы альтернатив
++// удалялись только если ВСЕ были инициализированы. После удаления критерия размеры
++// векторов расходились: alternativesComparisonsMatricesIsInit() навсегда возвращал false,
++// а матрицы «съезжали» на чужие критерии. Удаляем элемент из всех трёх векторов.
+ void DecisionModel::removeCriteria(int criteriaIndex) {
+-	if (criteriaIndex < criteriaCount()) {
+-		if (alternativesComparisonsMatricesIsInit()) {
+-			alternativesComps_.erase(begin(alternativesComps_) + criteriaIndex);
+-			alternativesCompsViews_.erase(begin(alternativesCompsViews_) + criteriaIndex);
+-		}
+-		criteriaNames_.erase(begin(criteriaNames_) + criteriaIndex);
+-
+-		criteriaComparisons_ = removeRowAndColumn(criteriaComparisons_, criteriaIndex, criteriaIndex);
+-		criteriaComparisonsMatrixView_ =
+-				removeRowAndColumn(criteriaComparisonsMatrixView_, criteriaIndex, criteriaIndex);
+-	}
++	if (criteriaIndex < 0 || criteriaIndex >= criteriaCount())
++		return;
++	auto eraseAt = [criteriaIndex](auto &v) {
++		if (static_cast<size_t>(criteriaIndex) < v.size())
++			v.erase(begin(v) + criteriaIndex);
++	};
++	eraseAt(alternativesComps_);
++	eraseAt(alternativesCompsViews_);
++	eraseAt(alternativesCompsIsInit_);
++	criteriaNames_.erase(begin(criteriaNames_) + criteriaIndex);
++
++	criteriaComparisons_ = removeRowAndColumn(criteriaComparisons_, criteriaIndex, criteriaIndex);
++	criteriaComparisonsMatrixView_ =
++			removeRowAndColumn(criteriaComparisonsMatrixView_, criteriaIndex, criteriaIndex);
+ }
+ 
++// FIX(A1-2): alternativesCompsIsInit_.at(i) бросал std::out_of_range, если векторы имели
++// разную длину; индекс альтернативы не проверялся (UB в removeRowAndColumn / erase).
+ void DecisionModel::removeAlternative(int alternativeIndex) {
+-	for (auto i = 0; i < alternativesComps_.size(); ++i) {
+-		if (alternativesCompsIsInit_.at(i)) {
++	if (alternativeIndex < 0 || alternativeIndex >= alternativesCount())
++		return;
++	for (size_t i = 0; i < alternativesComps_.size(); ++i) {
++		if (compsIsInitAt(static_cast<int>(i))) {
+ 			auto &alt = alternativesComps_[i];
+ 			alt = removeRowAndColumn(alt, alternativeIndex, alternativeIndex);
+-
+-			auto &altView = alternativesCompsViews_[i];
+-			altView = removeRowAndColumn(altView, alternativeIndex, alternativeIndex);
++			if (i < alternativesCompsViews_.size()) {
++				auto &altView = alternativesCompsViews_[i];
++				altView = removeRowAndColumn(altView, alternativeIndex, alternativeIndex);
++			}
+ 		}
+ 	}
+ 	alternativesNames_.erase(begin(alternativesNames_) + alternativeIndex);

@@ -1,0 +1,52 @@
+% Фрагменты для раздаточного материала. Требуются пакеты: algorithm, algpseudocode, amsmath.
+% \usepackage{algorithm}\usepackage{algpseudocode}\usepackage{amsmath}
+
+\subsection*{Математическая постановка}
+Даны матрица парных сравнений критериев $C=(c_{kl})\in\mathbb{R}_+^{m\times m}$ и матрицы
+парных сравнений альтернатив $A_1,\dots,A_m\in\mathbb{R}_+^{n\times n}$. Требуется найти вектор
+рейтингов $x>0$, минимизирующий взвешенную ошибку log-чебышевской аппроксимации
+\[
+  \min_{x>0}\ \max_{1\le i,j\le n}\Bigl(\max_{1\le k\le m} w_k a^{(k)}_{ij}\Bigr)\frac{x_j}{x_i},
+  \qquad
+  w=\arg\min_{w>0}\max_{1\le k,l\le m}\frac{c_{kl}w_l}{w_k},
+\]
+а среди (вообще говоря, неединственных) решений выбрать наилучшие и наихудшие
+дифференцирующие по отношению $\max_i x_i/\min_j x_j$ \cite{krivulin2020kio}.
+
+\begin{algorithm}[ht]
+\caption{Минимаксная log-чебышевская аппроксимация (библиотека \texttt{tlc})}
+\label{alg:tlc}
+\begin{algorithmic}[1]
+\Function{SolveSingle}{$A$}
+  \State $\lambda \gets \textsc{KarpRadius}(\log A)$ \Comment{$\lambda=\bigoplus_{k=1}^{n}\operatorname{tr}^{1/k}(A^k)$ за $O(n^3)$}
+  \State $S \gets \textsc{FloydWarshall}_{(\max,\times)}(I \oplus \lambda^{-1}A)$ \Comment{$S=(\lambda^{-1}A)^*$}
+  \State \Return $\lambda,\ \textsc{IndependentColumns}(S)$
+\EndFunction
+\Function{Best}{$P=(p_1,\dots,p_g)$} \Comment{формулы (4)--(5)}
+  \State $K\gets\arg\max_j \max_i p_{ij}/\min_i p_{ij}$
+  \ForAll{$k\in K$, $l\in\arg\min_i p_{ik}$}
+     \State добавить столбцы $q_j = p_j \oplus (p_{lj}/p_{lk})\,p_k$, $j=1,\dots,g$
+  \EndFor
+  \State \Return \textsc{IndependentColumns}(все $q_j$)
+\EndFunction
+\Function{Worst}{$A,\lambda$} \Comment{формула (6)}
+  \State $\Delta \gets \max_{ij}\bigl((\lambda^{-1}A)^*\bigr)_{ij}$
+  \State \Return \textsc{IndependentColumns}$\bigl((\Delta^{-1}\mathbf{1}\mathbf{1}^T\oplus\lambda^{-1}A)^*\bigr)$
+\EndFunction
+\State $(\lambda,P)\gets\textsc{SolveSingle}(C)$
+\If{$|P|=1$} $W_1\gets W_2\gets P$ \Else\ $W_1\gets\textsc{Best}(P)$, $W_2\gets\textsc{Worst}(C,\lambda)$ \EndIf
+\ForAll{$w\in W_1$}
+  \State $B\gets\bigoplus_k w_kA_k$;\quad $(\mu,Q)\gets\textsc{SolveSingle}(B)$
+  \State $X_1 \gets X_1 \cup (|Q|=1\ ?\ Q : \textsc{Best}(Q))$
+\EndFor
+\ForAll{$w\in W_2$}
+  \State $D\gets\bigoplus_k w_kA_k$;\quad $(\nu,Q)\gets\textsc{SolveSingle}(D)$
+  \State $X_2 \gets X_2 \cup (|Q|=1\ ?\ Q : \textsc{Worst}(D,\nu))$
+\EndFor
+\State \Return \textsc{IndependentColumns}$(X_1)$, \textsc{IndependentColumns}$(X_2)$
+\end{algorithmic}
+\end{algorithm}
+
+% IndependentColumns: нормировка столбцов на max, удаление коллинеарных, затем удаление
+% столбцов b, для которых P(b^-P)^- = b по оставшимся (тропическая линейная зависимость).
+% Пошаговое выполнение на задаче §4.1 — results/task1_trace.txt (команда `tlc solve ... --trace`).

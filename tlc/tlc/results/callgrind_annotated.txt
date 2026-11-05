@@ -1,0 +1,928 @@
+--------------------------------------------------------------------------------
+Profile data file '/home/claude/tlc/results/callgrind.out' (creator: callgrind-3.22.0)
+--------------------------------------------------------------------------------
+I1 cache: 
+D1 cache: 
+LL cache: 
+Timerange: Basic block 0 - 69621073
+Trigger: Program termination
+Profiled target:  /home/claude/tlc/build-prof/bench_kernels 1 100 60 (PID 865, part 1)
+Events recorded:  Ir
+Events shown:     Ir
+Event sort order: Ir
+Thresholds:       99
+Include dirs:     
+User annotated:   src/tropical.cpp
+Auto-annotation:  on
+
+--------------------------------------------------------------------------------
+Ir                   
+--------------------------------------------------------------------------------
+463,575,842 (100.0%)  PROGRAM TOTALS
+
+--------------------------------------------------------------------------------
+Ir                    file:function
+--------------------------------------------------------------------------------
+368,890,184 (79.57%)  src/tropical.cpp:tlc::mul(tlc::Matrix const&, tlc::Matrix const&) [/home/claude/tlc/build-prof/bench_kernels]
+ 50,977,180 (11.00%)  /usr/include/c++/13/bits/stl_algobase.h:tlc::mul(tlc::Matrix const&, tlc::Matrix const&)
+  6,916,221 ( 1.49%)  ./string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S:__memset_avx2_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  5,950,032 ( 1.28%)  /usr/include/c++/13/bits/stl_vector.h:tlc::mul(tlc::Matrix const&, tlc::Matrix const&)
+  4,826,100 ( 1.04%)  ./math/../sysdeps/x86_64/fpu/e_logl.S:__ieee754_logl [/usr/lib/x86_64-linux-gnu/libm.so.6]
+  4,142,502 ( 0.89%)  src/tropical.cpp:tlc::spectral_radius(tlc::Matrix const&) [/home/claude/tlc/build-prof/bench_kernels]
+  3,686,476 ( 0.80%)  ./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:__memcpy_avx_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  2,808,000 ( 0.61%)  ./math/./math/w_logl_compat.c:logl [/usr/lib/x86_64-linux-gnu/libm.so.6]
+  2,673,804 ( 0.58%)  src/tropical.cpp:tlc::kleene_star(tlc::Matrix const&) [/home/claude/tlc/build-prof/bench_kernels]
+  2,286,296 ( 0.49%)  bench/bench_kernels.cpp:main [/home/claude/tlc/build-prof/bench_kernels]
+  1,702,032 ( 0.37%)  src/tropical.cpp:tlc::oplus(tlc::Matrix const&, tlc::Matrix const&) [/home/claude/tlc/build-prof/bench_kernels]
+  1,561,001 ( 0.34%)  /usr/include/c++/13/bits/stl_algobase.h:main
+  1,275,580 ( 0.28%)  /usr/include/c++/13/bits/stl_algobase.h:tlc::oplus(tlc::Matrix const&, tlc::Matrix const&)
+    851,252 ( 0.18%)  include/tlc/tropical.hpp:tlc::mul(tlc::Matrix const&, tlc::Matrix const&)
+    655,212 ( 0.14%)  /usr/include/c++/13/cmath:main
+
+--------------------------------------------------------------------------------
+-- Auto-annotated source: bench/bench_kernels.cpp
+--------------------------------------------------------------------------------
+Ir                 
+
+-- line 20 ----------------------------------------
+        .           #include <random>
+        .           #include <string>
+        .           #include <vector>
+        .           
+        .           #include "tlc/tropical.hpp"
+        .           
+        .           // ---------- учёт памяти ----------
+        .           static std::size_t g_cur = 0, g_peak = 0, g_count = 0;
+      750 ( 0.00%)  void *operator new(std::size_t sz) {
+    1,500 ( 0.00%)      void *p = std::malloc(sz ? sz : 1);
+   64,078 ( 0.01%)  => ???:0x000000000010a4b0 (375x)
+      750 ( 0.00%)      if (!p) throw std::bad_alloc();
+    1,875 ( 0.00%)      g_cur += malloc_usable_size(p);
+    6,000 ( 0.00%)  => ???:0x000000000010a470 (375x)
+      375 ( 0.00%)      g_peak = std::max(g_peak, g_cur);
+      375 ( 0.00%)      ++g_count;
+        .               return p;
+    1,125 ( 0.00%)  }
+        .           void operator delete(void *p) noexcept {
+      724 ( 0.00%)      if (!p) return;
+      766 ( 0.00%)      g_cur -= malloc_usable_size(p);
+       16 ( 0.00%)  => ???:0x000000000010a470 (1x)
+      758 ( 0.00%)      std::free(p);
+       87 ( 0.00%)  => ???:0x000000000010a480 (1x)
+        .           }
+    1,448 ( 0.00%)  void operator delete(void *p, std::size_t) noexcept { operator delete(p); }
+        .           
+        .           using namespace tlc;
+        .           
+        .           static Matrix gen(std::size_t n, unsigned m, std::uint64_t seed) {
+        .               std::mt19937_64 rng(seed);
+        .               std::uniform_int_distribution<unsigned> d(1, m);
+        .               Matrix A(n, n, 1.0);
+      245 ( 0.00%)      for (std::size_t i = 0; i < n; ++i)
+    5,310 ( 0.00%)          for (std::size_t j = 0; j < i; ++j) {
+   12,390 ( 0.00%)              const double a = d(rng), b = d(rng);
+    5,310 ( 0.00%)              A(i, j) = a / b;
+    3,540 ( 0.00%)              A(j, i) = b / a;
+        .                   }
+        .               return A;
+        .           }
+        .           
+        .           // эталон λ: Карп в long double
+        .           static long double lambda_ref(const Matrix &A) {
+        1 ( 0.00%)      const std::size_t n = A.rows;
+        .               const long double NEG = -std::numeric_limits<long double>::infinity();
+        2 ( 0.00%)      std::vector<long double> D((n + 1) * n, NEG);
+       12 ( 0.00%)      for (std::size_t v = 0; v < n; ++v) D[v] = 0;
+       73 ( 0.00%)  => ???:0x000000000010a3c0 (1x)
+      613 ( 0.00%)      for (std::size_t k = 1; k <= n; ++k)
+   25,260 ( 0.01%)          for (std::size_t u = 0; u < n; ++u)
+  867,600 ( 0.19%)              for (std::size_t v = 0; v < n; ++v)
+1,296,600 ( 0.28%)                  D[k * n + v] = std::max(D[k * n + v], D[(k - 1) * n + u] + std::log(static_cast<long double>(A(u, v))));
+        .               long double best = NEG;
+      242 ( 0.00%)      for (std::size_t v = 0; v < n; ++v) {
+      120 ( 0.00%)          long double w = std::numeric_limits<long double>::infinity();
+   32,649 ( 0.01%)          for (std::size_t k = 0; k < n; ++k) w = std::min(w, (D[n * n + v] - D[k * n + v]) / (long double)(n - k));
+        .                   best = std::max(best, w);
+        .               }
+        .               return std::exp(best);
+        .           }
+        .           
+       10 ( 0.00%)  struct Run {
+        .               double ms_median = 0, ms_min = 0;
+        .               std::size_t peak = 0, allocs = 0;
+        .               double lambda = 0;
+        .               Matrix star;
+        .           };
+        .           
+        .           template <class F>
+        .           static Run measure(int reps, F &&f) {
+        .               Run r;
+        .               std::vector<double> t;
+        .               f(r);  // прогрев
+       15 ( 0.00%)      for (int i = 0; i < reps; ++i) {
+        6 ( 0.00%)          g_peak = g_cur;
+        3 ( 0.00%)          const std::size_t c0 = g_count, base = g_cur;
+        4 ( 0.00%)          const auto t0 = std::chrono::steady_clock::now();
+      931 ( 0.00%)  => ???:0x000000000010a4a0 (2x)
+        .                   f(r);
+        2 ( 0.00%)          const auto t1 = std::chrono::steady_clock::now();
+       62 ( 0.00%)  => ???:0x000000000010a4a0 (2x)
+        2 ( 0.00%)          t.push_back(std::chrono::duration<double, std::milli>(t1 - t0).count());
+        6 ( 0.00%)          r.peak = g_peak - base;
+        9 ( 0.00%)          r.allocs = g_count - c0;
+        .               }
+        .               std::sort(t.begin(), t.end());
+       13 ( 0.00%)      r.ms_median = t[t.size() / 2];
+        .               r.ms_min = t.front();
+        .               return r;
+        .           }
+        .           
+       11 ( 0.00%)  int main(int argc, char **argv) {
+        2 ( 0.00%)      const int reps = argc > 1 ? std::atoi(argv[1]) : 7;
+        3 ( 0.00%)      const unsigned m = argc > 2 ? static_cast<unsigned>(std::atoi(argv[2])) : 100;
+        .               std::vector<std::size_t> ns;
+       11 ( 0.00%)      for (int i = 3; i < argc; ++i) ns.push_back(static_cast<std::size_t>(std::atol(argv[i])));
+        2 ( 0.00%)      if (ns.empty()) ns = {10, 20, 40, 60, 80, 100, 120, 150, 160, 200, 300, 400};
+        .           
+        4 ( 0.00%)      std::cout << "n,m,impl,median_ms,min_ms,peak_heap_bytes,allocs,lambda,lambda_rel_err,star_max_rel_diff,finite\n";
+    4,180 ( 0.00%)  => ???:0x000000000010a440 (1x)
+       10 ( 0.00%)      for (std::size_t n : ns) {
+        1 ( 0.00%)          const Matrix A = gen(n, m, 1000 + n);
+        .                   const long double ref = lambda_ref(A);
+        .                   // аналог 2 прогоняет всё O(n^4); на больших n ограничиваем число повторов
+       13 ( 0.00%)          const int rn = n >= 200 ? std::max(1, reps / 3) : reps;
+        .                   Run naive = measure(rn, [&](Run &r) {
+        8 ( 0.00%)              r.lambda = spectral_radius_naive(A);
+216,915,610 (46.79%)  => /home/claude/tlc/src/tropical.cpp:tlc::spectral_radius_naive(tlc::Matrix const&) (2x)
+       23 ( 0.00%)              r.star = kleene_star_naive(scale(A, 1 / r.lambda));
+223,329,672 (48.18%)  => /home/claude/tlc/src/tropical.cpp:tlc::kleene_star_naive(tlc::Matrix const&) (2x)
+  101,488 ( 0.02%)  => /home/claude/tlc/src/tropical.cpp:tlc::scale(tlc::Matrix const&, double) (2x)
+        .                   });
+        .                   Run fast = measure(reps, [&](Run &r) {
+        7 ( 0.00%)              r.lambda = spectral_radius(A);
+5,063,041 ( 1.09%)  => /home/claude/tlc/src/tropical.cpp:tlc::spectral_radius(tlc::Matrix const&) (2x)
+       19 ( 0.00%)              r.star = kleene_star(scale(A, 1 / r.lambda));
+3,158,700 ( 0.68%)  => /home/claude/tlc/src/tropical.cpp:tlc::kleene_star(tlc::Matrix const&) (2x)
+  101,486 ( 0.02%)  => /home/claude/tlc/src/tropical.cpp:tlc::scale(tlc::Matrix const&, double) (2x)
+        .                   });
+        2 ( 0.00%)          double diff = 0;
+        4 ( 0.00%)          bool fin = true;
+   10,807 ( 0.00%)          for (std::size_t k = 0; k < fast.star.a.size(); ++k) {
+    7,200 ( 0.00%)              const double a = naive.star.a[k], b = fast.star.a[k];
+    7,200 ( 0.00%)              if (!std::isfinite(a)) { fin = false; continue; }
+   10,840 ( 0.00%)              diff = std::max(diff, std::fabs(a - b) / std::max(1.0, std::fabs(b)));
+        .                   }
+       13 ( 0.00%)          for (auto *r : {&naive, &fast}) {
+       14 ( 0.00%)              const bool f = r == &fast ? true : (fin && std::isfinite(naive.lambda));
+       24 ( 0.00%)              const double err = std::isfinite(r->lambda) ? std::fabs((long double)r->lambda - ref) / ref : INFINITY;
+       16 ( 0.00%)              std::cout << n << "," << m << "," << (r == &naive ? "analog2_naive" : "tlc_fast") << "," << r->ms_median
+        .                                 << "," << r->ms_min << "," << r->peak << "," << r->allocs << "," << r->lambda << "," << err
+       17 ( 0.00%)                        << "," << (r == &naive ? diff : 0.0) << "," << (f ? 1 : 0) << "\n";
+    2,704 ( 0.00%)  => ???:0x000000000010a540 (2x)
+        .                   }
+        2 ( 0.00%)          std::cout.flush();
+    1,030 ( 0.00%)  => ???:0x000000000010a3f0 (1x)
+        .               }
+       14 ( 0.00%)  }
+      114 ( 0.00%)  => /usr/include/c++/13/bits/stl_vector.h:std::vector<unsigned long, std::allocator<unsigned long> >::~vector() (1x)
+
+--------------------------------------------------------------------------------
+-- User-annotated source: src/tropical.cpp
+--------------------------------------------------------------------------------
+Ir                   
+
+-- line 4 ----------------------------------------
+          .           #include <cmath>
+          .           #include <iomanip>
+          .           #include <limits>
+          .           #include <sstream>
+          .           #include <stdexcept>
+          .           
+          .           namespace tlc {
+          .           
+         12 ( 0.00%)  Matrix Matrix::identity(std::size_t n) {
+          .               Matrix I(n, n, 0.0);
+        616 ( 0.00%)      for (std::size_t i = 0; i < n; ++i) I(i, i) = 1.0;
+          .               return I;
+         14 ( 0.00%)  }
+          .           
+          .           Matrix Matrix::from_columns(const std::vector<Vector> &cols) {
+          .               if (cols.empty()) return {};
+          .               Matrix M(cols[0].size(), cols.size());
+          .               for (std::size_t j = 0; j < cols.size(); ++j)
+          .                   for (std::size_t i = 0; i < M.rows; ++i) M(i, j) = cols[j][i];
+          .               return M;
+          .           }
+-- line 24 ----------------------------------------
+-- line 31 ----------------------------------------
+          .           
+          .           std::vector<Vector> Matrix::columns() const {
+          .               std::vector<Vector> c;
+          .               c.reserve(cols);
+          .               for (std::size_t j = 0; j < cols; ++j) c.push_back(column(j));
+          .               return c;
+          .           }
+          .           
+        120 ( 0.00%)  bool approx_equal(double x, double y, double eps) {
+      1,080 ( 0.00%)      return std::fabs(x - y) <= eps * std::max({1.0, std::fabs(x), std::fabs(y)});
+        120 ( 0.00%)  }
+          .           
+          .           bool approx_equal(const Vector &x, const Vector &y, double eps) {
+          .               if (x.size() != y.size()) return false;
+          .               for (std::size_t i = 0; i < x.size(); ++i)
+          .                   if (!approx_equal(x[i], y[i], eps)) return false;
+          .               return true;
+          .           }
+          .           
+      1,152 ( 0.00%)  static void require_square(const Matrix &A, const char *who) {
+        256 ( 0.00%)      if (A.rows != A.cols) throw std::invalid_argument(std::string(who) + ": matrix must be square");
+      1,280 ( 0.00%)  }
+          .           
+      1,888 ( 0.00%)  Matrix mul(const Matrix &A, const Matrix &B) {
+        708 ( 0.00%)      if (A.cols != B.rows) throw std::invalid_argument("mul: size mismatch");
+        708 ( 0.00%)      Matrix R(A.rows, B.cols, 0.0);
+          .               // порядок i-k-j: строка B читается последовательно (кэш-дружественно)
+     71,744 ( 0.02%)      for (std::size_t i = 0; i < A.rows; ++i)
+  2,634,232 ( 0.57%)          for (std::size_t k = 0; k < A.cols; ++k) {
+          .                       const double aik = A(i, k);
+  2,549,980 ( 0.55%)              if (aik == 0.0) continue;
+          .                       double *r = &R.a[i * R.cols];
+    849,600 ( 0.18%)              const double *b = &B.a[k * B.cols];
+362,779,200 (78.26%)              for (std::size_t j = 0; j < B.cols; ++j) r[j] = std::max(r[j], aik * b[j]);
+          .                   }
+          .               return R;
+      2,124 ( 0.00%)  }
+          .           
+          .           Vector mul(const Matrix &A, const Vector &x) {
+          .               if (A.cols != x.size()) throw std::invalid_argument("mul: size mismatch");
+          .               Vector y(A.rows, 0.0);
+          .               for (std::size_t i = 0; i < A.rows; ++i)
+          .                   for (std::size_t j = 0; j < A.cols; ++j) y[i] = std::max(y[i], A(i, j) * x[j]);
+          .               return y;
+          .           }
+          .           
+        708 ( 0.00%)  Matrix oplus(const Matrix &A, const Matrix &B) {
+      1,180 ( 0.00%)      if (A.rows != B.rows || A.cols != B.cols) throw std::invalid_argument("oplus: size mismatch");
+          .               Matrix R = A;
+  1,699,318 ( 0.37%)      for (std::size_t k = 0; k < R.a.size(); ++k) R.a[k] = std::max(R.a[k], B.a[k]);
+          .               return R;
+        826 ( 0.00%)  }
+          .           
+         28 ( 0.00%)  Matrix scale(const Matrix &A, double c) {
+          .               Matrix R = A;
+     86,408 ( 0.02%)      for (double &v : R.a) v *= c;
+          .               return R;
+         24 ( 0.00%)  }
+          .           
+          .           Matrix conj(const Matrix &A) {
+          .               Matrix R(A.cols, A.rows, 0.0);
+          .               for (std::size_t i = 0; i < A.rows; ++i)
+          .                   for (std::size_t j = 0; j < A.cols; ++j)
+          .                       if (A(i, j) != 0.0) R(j, i) = 1.0 / A(i, j);
+          .               return R;
+          .           }
+          .           
+        360 ( 0.00%)  double trace(const Matrix &A) {
+        480 ( 0.00%)      require_square(A, "trace");
+      2,520 ( 0.00%)  => src/tropical.cpp:tlc::require_square(tlc::Matrix const&, char const*) [clone .isra.0] (120x)
+        240 ( 0.00%)      double t = 0.0;
+     29,640 ( 0.01%)      for (std::size_t i = 0; i < A.rows; ++i) t = std::max(t, A(i, i));
+          .               return t;
+        240 ( 0.00%)  }
+          .           
+          .           double max_element(const Matrix &A) {
+          .               double m = 0.0;
+          .               for (double v : A.a) m = std::max(m, v);
+          .               return m;
+          .           }
+          .           
+          .           // λ(A) — максимальное среднее геометрическое веса цикла графа матрицы.
+          .           // Логарифмируем веса и находим максимальный средний вес цикла алгоритмом Карпа:
+          .           //   D_k(v) = max вес пути из k дуг, оканчивающегося в v (начало — любая вершина),
+          .           //   log λ = max_v min_{0<=k<n} (D_n(v) - D_k(v)) / (n - k).
+         26 ( 0.00%)  double spectral_radius(const Matrix &A) {
+          8 ( 0.00%)      require_square(A, "spectral_radius");
+         42 ( 0.00%)  => src/tropical.cpp:tlc::require_square(tlc::Matrix const&, char const*) [clone .isra.0] (2x)
+          2 ( 0.00%)      const std::size_t n = A.rows;
+          6 ( 0.00%)      if (n == 0) return 0.0;
+          .               constexpr double NEG = -std::numeric_limits<double>::infinity();
+          4 ( 0.00%)      std::vector<double> L(n * n);
+     72,004 ( 0.02%)      for (std::size_t k = 0; k < n * n; ++k) L[k] = A.a[k] > 0.0 ? std::log(A.a[k]) : NEG;
+    395,466 ( 0.09%)  => ???:0x000000000010a420 (7,200x)
+          .           
+          4 ( 0.00%)      std::vector<double> D((n + 1) * n, NEG);
+          .               std::fill(D.begin(), D.begin() + static_cast<std::ptrdiff_t>(n), 0.0);
+        970 ( 0.00%)      for (std::size_t k = 1; k <= n; ++k) {
+          .                   const double *prev = &D[(k - 1) * n];
+          .                   double *cur = &D[k * n];
+     28,800 ( 0.01%)          for (std::size_t u = 0; u < n; ++u) {
+     43,200 ( 0.01%)              if (prev[u] == NEG) continue;
+          .                       const double *row = &L[u * n];
+  1,735,200 ( 0.37%)              for (std::size_t v = 0; v < n; ++v)
+  2,160,000 ( 0.47%)                  if (row[v] != NEG) cur[v] = std::max(cur[v], prev[u] + row[v]);
+          .                   }
+          .               }
+          2 ( 0.00%)      double best = NEG;
+          .               const double *Dn = &D[n * n];
+        484 ( 0.00%)      for (std::size_t v = 0; v < n; ++v) {
+        480 ( 0.00%)          if (Dn[v] == NEG) continue;
+        480 ( 0.00%)          double worst = std::numeric_limits<double>::infinity();
+     21,600 ( 0.00%)          for (std::size_t k = 0; k < n; ++k) {
+      7,200 ( 0.00%)              const double dk = D[k * n + v];
+     21,600 ( 0.00%)              if (dk == NEG) continue;
+     50,400 ( 0.01%)              worst = std::min(worst, (Dn[v] - dk) / static_cast<double>(n - k));
+          .                   }
+          .                   best = std::max(best, worst);
+          .               }
+         10 ( 0.00%)      return best == NEG ? 0.0 : std::exp(best);
+        120 ( 0.00%)  => ???:0x000000000010a580 (2x)
+         22 ( 0.00%)  }
+          .           
+          .           // Прямая формула из статьи: λ = trA ⊕ tr^{1/2}(A^2) ⊕ ... ⊕ tr^{1/n}(A^n).
+          .           // Совпадает по устройству с SpectralRadius() аналога 2: n-1 умножений матриц.
+         24 ( 0.00%)  double spectral_radius_naive(const Matrix &A) {
+          8 ( 0.00%)      require_square(A, "spectral_radius_naive");
+         42 ( 0.00%)  => src/tropical.cpp:tlc::require_square(tlc::Matrix const&, char const*) [clone .isra.0] (2x)
+          6 ( 0.00%)      if (A.rows == 0) return 0.0;
+          6 ( 0.00%)      double r = trace(A);
+        918 ( 0.00%)  => src/tropical.cpp:tlc::trace(tlc::Matrix const&) (2x)
+          .               Matrix P = A;
+        366 ( 0.00%)      for (std::size_t k = 2; k <= A.rows; ++k) {
+        472 ( 0.00%)          P = mul(P, A);
+216,759,224 (46.76%)  => src/tropical.cpp:tlc::mul(tlc::Matrix const&, tlc::Matrix const&) (118x)
+      1,298 ( 0.00%)          r = std::max(r, std::pow(trace(P), 1.0 / static_cast<double>(k)));
+     54,162 ( 0.01%)  => src/tropical.cpp:tlc::trace(tlc::Matrix const&) (118x)
+     15,576 ( 0.00%)  => ???:0x000000000010a560 (118x)
+          .               }
+          .               return r;
+         24 ( 0.00%)  }
+          .           
+          .           // Floyd–Warshall в (max, ×): S_ij = max(S_ij, S_ik S_kj). При λ(A) <= 1 циклы
+          .           // не увеличивают вес, поэтому результат равен I ⊕ A ⊕ ... ⊕ A^{n-1}.
+         20 ( 0.00%)  Matrix kleene_star(const Matrix &A) {
+          8 ( 0.00%)      require_square(A, "kleene_star");
+         42 ( 0.00%)  => src/tropical.cpp:tlc::require_square(tlc::Matrix const&, char const*) [clone .isra.0] (2x)
+          .               const std::size_t n = A.rows;
+          .               Matrix S = A;
+        626 ( 0.00%)      for (std::size_t i = 0; i < n; ++i) S(i, i) = std::max(S(i, i), 1.0);
+        838 ( 0.00%)      for (std::size_t k = 0; k < n; ++k) {
+          .                   const double *sk = &S.a[k * n];
+     58,200 ( 0.01%)          for (std::size_t i = 0; i < n; ++i) {
+     14,400 ( 0.00%)              if (i == k) continue;
+      7,080 ( 0.00%)              const double sik = S(i, k);
+     21,246 ( 0.00%)              if (sik == 0.0) continue;
+          .                       double *si = &S.a[i * n];
+  2,570,040 ( 0.55%)              for (std::size_t j = 0; j < n; ++j) si[j] = std::max(si[j], sik * sk[j]);
+          .                   }
+          .               }
+          .               // численная стабилизация: при λ ≈ 1 диагональ может стать 1 + O(ε)
+        608 ( 0.00%)      for (std::size_t i = 0; i < n; ++i)
+        720 ( 0.00%)          if (approx_equal(S(i, i), 1.0, 1e-12)) S(i, i) = 1.0;
+      1,560 ( 0.00%)  => src/tropical.cpp:tlc::approx_equal(double, double, double) (120x)
+          .               return S;
+         18 ( 0.00%)  }
+          .           
+          .           // Как Kleene() аналога 2: I ⊕ A ⊕ ... ⊕ A^{n-1} последовательными умножениями.
+         26 ( 0.00%)  Matrix kleene_star_naive(const Matrix &A) {
+          8 ( 0.00%)      require_square(A, "kleene_star_naive");
+         42 ( 0.00%)  => src/tropical.cpp:tlc::require_square(tlc::Matrix const&, char const*) [clone .isra.0] (2x)
+          2 ( 0.00%)      const std::size_t n = A.rows;
+          6 ( 0.00%)      Matrix R = Matrix::identity(n);
+     58,748 ( 0.01%)  => src/tropical.cpp:tlc::Matrix::identity(unsigned long) (2x)
+          .               Matrix P = A;
+        366 ( 0.00%)      for (std::size_t k = 1; k < n; ++k) {
+        472 ( 0.00%)          R = oplus(R, P);
+  6,402,780 ( 1.38%)  => src/tropical.cpp:tlc::oplus(tlc::Matrix const&, tlc::Matrix const&) (118x)
+        472 ( 0.00%)          P = mul(P, A);  // последнее умножение в аналоге 2 лишнее — сохраняем ради честности замеров
+216,759,404 (46.76%)  => src/tropical.cpp:tlc::mul(tlc::Matrix const&, tlc::Matrix const&) (118x)
+          .               }
+          .               if (n == 1) R = oplus(R, A);
+          .               return R;
+         24 ( 0.00%)  }
+          .           
+          .           Vector normalize_max(Vector x) {
+          .               double m = 0.0;
+          .               for (double v : x) m = std::max(m, v);
+          .               if (m > 0.0)
+          .                   for (double &v : x) v /= m;
+          .               return x;
+          .           }
+-- line 207 ----------------------------------------
+
+--------------------------------------------------------------------------------
+-- Auto-annotated source: /usr/include/c++/13/cmath
+--------------------------------------------------------------------------------
+Ir               
+
+-- line 212 ----------------------------------------
+      .           
+      .           #ifndef __CORRECT_ISO_CPP_MATH_H_PROTO
+      .             inline _GLIBCXX_CONSTEXPR float
+      .             exp(float __x)
+      .             { return __builtin_expf(__x); }
+      .           
+      .             inline _GLIBCXX_CONSTEXPR long double
+      .             exp(long double __x)
+      4 ( 0.00%)    { return __builtin_expl(__x); }
+     71 ( 0.00%)  => ???:0x000000000010a310 (1x)
+      .           #endif
+      .           
+      .             template<typename _Tp>
+      .               inline _GLIBCXX_CONSTEXPR
+      .               typename __gnu_cxx::__enable_if<__is_integer<_Tp>::__value,
+      .                                               double>::__type
+      .               exp(_Tp __x)
+      .               { return __builtin_exp(__x); }
+-- line 228 ----------------------------------------
+-- line 231 ----------------------------------------
+      .           
+      .           #ifndef __CORRECT_ISO_CPP_MATH_H_PROTO
+      .             inline _GLIBCXX_CONSTEXPR float
+      .             fabs(float __x)
+      .             { return __builtin_fabsf(__x); }
+      .           
+      .             inline _GLIBCXX_CONSTEXPR long double
+      .             fabs(long double __x)
+      2 ( 0.00%)    { return __builtin_fabsl(__x); }
+      .           #endif
+      .           
+      .             template<typename _Tp>
+      .               inline _GLIBCXX_CONSTEXPR
+      .               typename __gnu_cxx::__enable_if<__is_integer<_Tp>::__value,
+      .                                               double>::__type
+      .               fabs(_Tp __x)
+      .               { return __builtin_fabs(__x); }
+-- line 247 ----------------------------------------
+-- line 319 ----------------------------------------
+      .           
+      .           #ifndef __CORRECT_ISO_CPP_MATH_H_PROTO
+      .             inline _GLIBCXX_CONSTEXPR float
+      .             log(float __x)
+      .             { return __builtin_logf(__x); }
+      .           
+      .             inline _GLIBCXX_CONSTEXPR long double
+      .             log(long double __x)
+648,000 ( 0.14%)    { return __builtin_logl(__x); }
+8,066,100 ( 1.74%)  => ???:0x000000000010a390 (216,000x)
+      .           #endif
+      .           
+      .             template<typename _Tp>
+      .               inline _GLIBCXX_CONSTEXPR
+      .               typename __gnu_cxx::__enable_if<__is_integer<_Tp>::__value, 
+      .                                               double>::__type
+      .               log(_Tp __x)
+      .               { return __builtin_log(__x); }
+-- line 335 ----------------------------------------
+-- line 1119 ----------------------------------------
+      .           
+      .           #ifndef __CORRECT_ISO_CPP11_MATH_H_PROTO_FP
+      .             constexpr bool
+      .             isfinite(float __x)
+      .             { return __builtin_isfinite(__x); }
+      .           
+      .             constexpr bool
+      .             isfinite(double __x)
+  7,206 ( 0.00%)    { return __builtin_isfinite(__x); }
+      .           
+      .             constexpr bool
+      .             isfinite(long double __x)
+      .             { return __builtin_isfinite(__x); }
+      .           #endif
+      .           
+      .           #ifndef __CORRECT_ISO_CPP11_MATH_H_PROTO_INT
+      .             template<typename _Tp>
+-- line 1135 ----------------------------------------
+
+--------------------------------------------------------------------------------
+-- Auto-annotated source: /usr/include/c++/13/bits/stl_algobase.h
+--------------------------------------------------------------------------------
+Ir                  
+
+-- line 231 ----------------------------------------
+         .               _GLIBCXX14_CONSTEXPR
+         .               inline const _Tp&
+         .               min(const _Tp& __a, const _Tp& __b)
+         .               {
+         .                 // concept requirements
+         .                 __glibcxx_function_requires(_LessThanComparableConcept<_Tp>)
+         .                 //return __b < __a ? __b : __a;
+         .                 if (__b < __a)
+    25,200 ( 0.01%)  	return __b;
+         .                 return __a;
+         .               }
+         .           
+         .             /**
+         .              *  @brief This does what you think it does.
+         .              *  @ingroup sorting_algorithms
+         .              *  @param  __a  A thing of arbitrary type.
+         .              *  @param  __b  Another thing of arbitrary type.
+-- line 247 ----------------------------------------
+-- line 254 ----------------------------------------
+         .             template<typename _Tp>
+         .               _GLIBCXX14_CONSTEXPR
+         .               inline const _Tp&
+         .               max(const _Tp& __a, const _Tp& __b)
+         .               {
+         .                 // concept requirements
+         .                 __glibcxx_function_requires(_LessThanComparableConcept<_Tp>)
+         .                 //return  __a < __b ? __b : __a;
+54,627,771 (11.78%)        if (__a < __b)
+    22,256 ( 0.00%)  	return __b;
+         .                 return __a;
+         .               }
+         .           
+         .             /**
+         .              *  @brief This does what you think it does.
+         .              *  @ingroup sorting_algorithms
+         .              *  @param  __a  A thing of arbitrary type.
+         .              *  @param  __b  Another thing of arbitrary type.
+-- line 271 ----------------------------------------
+-- line 427 ----------------------------------------
+         .             template<bool _IsMove>
+         .               struct __copy_move<_IsMove, true, random_access_iterator_tag>
+         .               {
+         .                 template<typename _Tp, typename _Up>
+         .           	_GLIBCXX20_CONSTEXPR
+         .           	static _Up*
+         .           	__copy_m(_Tp* __first, _Tp* __last, _Up* __result)
+         .           	{
+       252 ( 0.00%)  	  const ptrdiff_t _Num = __last - __first;
+       256 ( 0.00%)  	  if (__builtin_expect(_Num > 1, true))
+       518 ( 0.00%)  	    __builtin_memmove(__result, __first, sizeof(_Tp) * _Num);
+ 3,398,252 ( 0.73%)  => ???:0x000000000010a510 (118x)
+         .           	  else if (_Num == 1)
+         .           	    std::__copy_move<_IsMove, false, random_access_iterator_tag>::
+         .           	      __assign_one(__result, __first);
+       254 ( 0.00%)  	  return __result + _Num;
+         .           	}
+         .               };
+         .           
+         .           _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+         .           
+         .             template<typename _Tp, typename _Ref, typename _Ptr>
+         .               struct _Deque_iterator;
+         .           
+-- line 449 ----------------------------------------
+-- line 922 ----------------------------------------
+         .             template<typename _ForwardIterator, typename _Tp>
+         .               _GLIBCXX20_CONSTEXPR
+         .               inline typename
+         .               __gnu_cxx::__enable_if<__is_scalar<_Tp>::__value, void>::__type
+         .               __fill_a1(_ForwardIterator __first, _ForwardIterator __last,
+         .           	      const _Tp& __value)
+         .               {
+         .                 const _Tp __tmp = __value;
+    21,880 ( 0.00%)        for (; __first != __last; ++__first)
+    21,248 ( 0.00%)  	*__first = __tmp;
+ 6,801,284 ( 1.47%)  => ???:0x000000000010a3c0 (236x)
+         .               }
+         .           
+         .             // Specialization: for char types we can use memset.
+         .             template<typename _Tp>
+         .               _GLIBCXX20_CONSTEXPR
+         .               inline typename
+         .               __gnu_cxx::__enable_if<__is_byte<_Tp>::__value, void>::__type
+         .               __fill_a1(_Tp* __first, _Tp* __last, const _Tp& __c)
+-- line 939 ----------------------------------------
+-- line 1109 ----------------------------------------
+         .                 static_assert(is_integral<_Size>{}, "fill_n must pass integral size");
+         .           #endif
+         .                 return __fill_n_a1(__first, __n, __value);
+         .               }
+         .           
+         .             template<typename _OutputIterator, typename _Size, typename _Tp>
+         .               _GLIBCXX20_CONSTEXPR
+         .               inline _OutputIterator
+         3 ( 0.00%)      __fill_n_a(_OutputIterator __first, _Size __n, const _Tp& __value,
+         .           	       std::random_access_iterator_tag)
+         .               {
+         .           #if __cplusplus >= 201103L
+         .                 static_assert(is_integral<_Size>{}, "fill_n must pass integral size");
+         .           #endif
+         4 ( 0.00%)        if (__n <= 0)
+         .           	return __first;
+         .           
+         .                 __glibcxx_requires_can_increment(__first, __n);
+         .           
+         .                 std::__fill_a(__first, __first + __n, __value);
+         .                 return __first + __n;
+         .               }
+         .           
+-- line 1131 ----------------------------------------
+-- line 1510 ----------------------------------------
+         .           
+         .             /// This is a helper function for the sort routines and for random.tcc.
+         .             //  Precondition: __n > 0.
+         .             template<typename _Tp>
+         .               inline _GLIBCXX_CONSTEXPR _Tp
+         .               __lg(_Tp __n)
+         .               {
+         .           #if __cplusplus >= 201402L
+         8 ( 0.00%)        return std::__bit_width(make_unsigned_t<_Tp>(__n)) - 1;
+         .           #else
+         .                 // Use +__n so it promotes to at least int.
+         .                 return (sizeof(+__n) * __CHAR_BIT__ - 1)
+         .           	       - (sizeof(+__n) == sizeof(long long)
+         .           		    ? __builtin_clzll(+__n)
+         .           		    : (sizeof(+__n) == sizeof(long)
+         .           			 ? __builtin_clzl(+__n)
+         .           			 : __builtin_clz(+__n)));
+-- line 1526 ----------------------------------------
+
+--------------------------------------------------------------------------------
+-- Auto-annotated source: include/tlc/tropical.hpp
+--------------------------------------------------------------------------------
+Ir               
+
+-- line 12 ----------------------------------------
+      .           #include <cstddef>
+      .           #include <string>
+      .           #include <vector>
+      .           
+      .           namespace tlc {
+      .           
+      .           using Vector = std::vector<double>;
+      .           
+    856 ( 0.00%)  struct Matrix {
+      .               std::size_t rows = 0, cols = 0;
+      .               std::vector<double> a;  // row-major
+      3 ( 0.00%)      Matrix() = default;
+  1,666 ( 0.00%)      Matrix(std::size_t r, std::size_t c, double v = 0.0) : rows(r), cols(c), a(r * c, v) {}
+  7,084 ( 0.00%)      double &operator()(std::size_t i, std::size_t j) { return a[i * cols + j]; }
+856,802 ( 0.18%)      double operator()(std::size_t i, std::size_t j) const { return a[i * cols + j]; }
+      .               static Matrix identity(std::size_t n);
+      .               static Matrix from_columns(const std::vector<Vector> &cols);
+      .               Vector column(std::size_t j) const;
+      .               std::vector<Vector> columns() const;
+      .           };
+      .           
+      .           constexpr double kEps = 1e-9;  // относительная точность сравнений
+      .           
+-- line 34 ----------------------------------------
+
+--------------------------------------------------------------------------------
+-- Auto-annotated source: /usr/include/c++/13/bits/stl_vector.h
+--------------------------------------------------------------------------------
+Ir                 
+
+-- line 92 ----------------------------------------
+        .                 struct _Vector_impl_data
+        .                 {
+        .           	pointer _M_start;
+        .           	pointer _M_finish;
+        .           	pointer _M_end_of_storage;
+        .           
+        .           	_GLIBCXX20_CONSTEXPR
+        .           	_Vector_impl_data() _GLIBCXX_NOEXCEPT
+    1,233 ( 0.00%)  	: _M_start(), _M_finish(), _M_end_of_storage()
+        .           	{ }
+        .           
+        .           #if __cplusplus >= 201103L
+        .           	_GLIBCXX20_CONSTEXPR
+        .           	_Vector_impl_data(_Vector_impl_data&& __x) noexcept
+        .           	: _M_start(__x._M_start), _M_finish(__x._M_finish),
+        .           	  _M_end_of_storage(__x._M_end_of_storage)
+        .           	{ __x._M_start = __x._M_finish = __x._M_end_of_storage = pointer(); }
+        .           #endif
+        .           
+        .           	_GLIBCXX20_CONSTEXPR
+        .           	void
+        .           	_M_copy_data(_Vector_impl_data const& __x) _GLIBCXX_NOEXCEPT
+        .           	{
+    1,196 ( 0.00%)  	  _M_start = __x._M_start;
+        2 ( 0.00%)  	  _M_finish = __x._M_finish;
+    1,072 ( 0.00%)  	  _M_end_of_storage = __x._M_end_of_storage;
+        .           	}
+        .           
+        .           	_GLIBCXX20_CONSTEXPR
+        .           	void
+        .           	_M_swap_data(_Vector_impl_data& __x) _GLIBCXX_NOEXCEPT
+        .           	{
+        .           	  // Do not use std::swap(_M_start, __x._M_start), etc as it loses
+        .           	  // information used by TBAA.
+-- line 125 ----------------------------------------
+-- line 362 ----------------------------------------
+        .                 : _M_impl(_Tp_alloc_type(__a), std::move(__x._M_impl))
+        .                 { }
+        .           #endif
+        .           
+        .                 _GLIBCXX20_CONSTEXPR
+        .                 ~_Vector_base() _GLIBCXX_NOEXCEPT
+        .                 {
+        .           	_M_deallocate(_M_impl._M_start,
+      371 ( 0.00%)  		      _M_impl._M_end_of_storage - _M_impl._M_start);
+        .                 }
+        .           
+        .               public:
+        .                 _Vector_impl _M_impl;
+        .           
+        .                 _GLIBCXX20_CONSTEXPR
+        .                 pointer
+        .                 _M_allocate(size_t __n)
+        .                 {
+        .           	typedef __gnu_cxx::__alloc_traits<_Tp_alloc_type> _Tr;
+   11,424 ( 0.00%)  	return __n != 0 ? _Tr::allocate(_M_impl, __n) : pointer();
+        .                 }
+        .           
+        .                 _GLIBCXX20_CONSTEXPR
+        .                 void
+        2 ( 0.00%)        _M_deallocate(pointer __p, size_t __n)
+        .                 {
+        .           	typedef __gnu_cxx::__alloc_traits<_Tp_alloc_type> _Tr;
+      755 ( 0.00%)  	if (__p)
+        .           	  _Tr::deallocate(_M_impl, __p, __n);
+        .                 }
+        .           
+        .               protected:
+        .                 _GLIBCXX20_CONSTEXPR
+        .                 void
+        .                 _M_create_storage(size_t __n)
+        .                 {
+      617 ( 0.00%)  	this->_M_impl._M_start = this->_M_allocate(__n);
+        .           	this->_M_impl._M_finish = this->_M_impl._M_start;
+      742 ( 0.00%)  	this->_M_impl._M_end_of_storage = this->_M_impl._M_start + __n;
+        .                 }
+        .               };
+        .           
+        .             /**
+        .              *  @brief A standard container which offers fixed time access to
+        .              *  individual elements in any order.
+        .              *
+        .              *  @ingroup sequences
+-- line 408 ----------------------------------------
+-- line 597 ----------------------------------------
+        .                  *  The newly-created %vector uses a copy of the allocator object used
+        .                  *  by @a __x (unless the allocator traits dictate a different object).
+        .                  */
+        .                 _GLIBCXX20_CONSTEXPR
+        .                 vector(const vector& __x)
+        .                 : _Base(__x.size(),
+        .           	_Alloc_traits::_S_select_on_copy(__x._M_get_Tp_allocator()))
+        .                 {
+        6 ( 0.00%)  	this->_M_impl._M_finish =
+        .           	  std::__uninitialized_copy_a(__x.begin(), __x.end(),
+        .           				      this->_M_impl._M_start,
+        .           				      _M_get_Tp_allocator());
+        .                 }
+        .           
+        .           #if __cplusplus >= 201103L
+        .                 /**
+        .                  *  @brief  %Vector move constructor.
+-- line 613 ----------------------------------------
+-- line 725 ----------------------------------------
+        .           
+        .                 /**
+        .                  *  The dtor only erases the elements, and note that if the
+        .                  *  elements themselves are pointers, the pointed-to memory is
+        .                  *  not touched in any way.  Managing the pointer is the user's
+        .                  *  responsibility.
+        .                  */
+        .                 _GLIBCXX20_CONSTEXPR
+        2 ( 0.00%)        ~vector() _GLIBCXX_NOEXCEPT
+        .                 {
+        .           	std::_Destroy(this->_M_impl._M_start, this->_M_impl._M_finish,
+        .           		      _M_get_Tp_allocator());
+        .           	_GLIBCXX_ASAN_ANNOTATE_BEFORE_DEALLOC;
+        5 ( 0.00%)        }
+        .           
+        .                 /**
+        .                  *  @brief  %Vector assignment operator.
+        .                  *  @param  __x  A %vector of identical element and allocator types.
+        .                  *
+        .                  *  All the elements of @a __x are copied, but any unused capacity in
+        .                  *  @a __x will not be copied.
+        .                  *
+-- line 746 ----------------------------------------
+-- line 985 ----------------------------------------
+        .                 { return const_reverse_iterator(begin()); }
+        .           #endif
+        .           
+        .                 // [23.2.4.2] capacity
+        .                 /**  Returns the number of elements in the %vector.  */
+        .                 _GLIBCXX_NODISCARD _GLIBCXX20_CONSTEXPR
+        .                 size_type
+        .                 size() const _GLIBCXX_NOEXCEPT
+      622 ( 0.00%)        { return size_type(this->_M_impl._M_finish - this->_M_impl._M_start); }
+        .           
+        .                 /**  Returns the size() of the largest possible %vector.  */
+        .                 _GLIBCXX_NODISCARD _GLIBCXX20_CONSTEXPR
+        .                 size_type
+        .                 max_size() const _GLIBCXX_NOEXCEPT
+        .                 { return _S_max_size(_M_get_Tp_allocator()); }
+        .           
+        .           #if __cplusplus >= 201103L
+-- line 1001 ----------------------------------------
+-- line 1121 ----------------------------------------
+        .                  *  out_of_range lookups are not defined. (For checked lookups
+        .                  *  see at().)
+        .                  */
+        .                 _GLIBCXX_NODISCARD _GLIBCXX20_CONSTEXPR
+        .                 reference
+        .                 operator[](size_type __n) _GLIBCXX_NOEXCEPT
+        .                 {
+        .           	__glibcxx_requires_subscript(__n);
+3,401,941 ( 0.73%)  	return *(this->_M_impl._M_start + __n);
+        .                 }
+        .           
+        .                 /**
+        .                  *  @brief  Subscript access to the data contained in the %vector.
+        .                  *  @param __n The index of the element for which data should be
+        .                  *  accessed.
+        .                  *  @return  Read-only (constant) reference to data.
+        .                  *
+-- line 1137 ----------------------------------------
+-- line 1140 ----------------------------------------
+        .                  *  out_of_range lookups are not defined. (For checked lookups
+        .                  *  see at().)
+        .                  */
+        .                 _GLIBCXX_NODISCARD _GLIBCXX20_CONSTEXPR
+        .                 const_reference
+        .                 operator[](size_type __n) const _GLIBCXX_NOEXCEPT
+        .                 {
+        .           	__glibcxx_requires_subscript(__n);
+2,548,921 ( 0.55%)  	return *(this->_M_impl._M_start + __n);
+        .                 }
+        .           
+        .               protected:
+        .                 /// Safety check used only from at().
+        .                 _GLIBCXX20_CONSTEXPR
+        .                 void
+        .                 _M_range_check(size_type __n) const
+        .                 {
+-- line 1156 ----------------------------------------
+-- line 1696 ----------------------------------------
+        .           					this->_M_impl._M_start,
+        .           					_M_get_Tp_allocator());
+        .           	}
+        .           
+        .                 // Called by the first initialize_dispatch above and by the
+        .                 // vector(n,value,a) constructor.
+        .                 _GLIBCXX20_CONSTEXPR
+        .                 void
+        6 ( 0.00%)        _M_fill_initialize(size_type __n, const value_type& __value)
+        .                 {
+      239 ( 0.00%)  	this->_M_impl._M_finish =
+        .           	  std::__uninitialized_fill_n_a(this->_M_impl._M_start, __n, __value,
+        .           					_M_get_Tp_allocator());
+        .                 }
+        .           
+        .           #if __cplusplus >= 201103L
+        .                 // Called by the vector(n) constructor.
+        .                 _GLIBCXX20_CONSTEXPR
+        .                 void
+        .                 _M_default_initialize(size_type __n)
+        .                 {
+        2 ( 0.00%)  	this->_M_impl._M_finish =
+        .           	  std::__uninitialized_default_n_a(this->_M_impl._M_start, __n,
+        .           					   _M_get_Tp_allocator());
+        .                 }
+        .           #endif
+        .           
+        .                 // Internal assign functions follow.  The *_aux functions do the actual
+        .                 // assignment work for the range versions.
+        .           
+-- line 1725 ----------------------------------------
+-- line 1890 ----------------------------------------
+        .                 { return _M_insert_rval(__position, std::move(__v)); }
+        .           #endif
+        .           
+        .                 // Called by _M_fill_insert, _M_insert_aux etc.
+        .                 _GLIBCXX20_CONSTEXPR
+        .                 size_type
+        .                 _M_check_len(size_type __n, const char* __s) const
+        .                 {
+        9 ( 0.00%)  	if (max_size() - size() < __n)
+        .           	  __throw_length_error(__N(__s));
+        .           
+        .           	const size_type __len = size() + (std::max)(size(), __n);
+       12 ( 0.00%)  	return (__len < size() || __len > max_size()) ? max_size() : __len;
+        .                 }
+        .           
+        .                 // Called by constructors to check initial size.
+        .                 static _GLIBCXX20_CONSTEXPR size_type
+        .                 _S_check_init_len(size_type __n, const allocator_type& __a)
+        .                 {
+      732 ( 0.00%)  	if (__n > _S_max_size(_Tp_alloc_type(__a)))
+        .           	  __throw_length_error(
+        .           	      __N("cannot create std::vector larger than max_size()"));
+        .           	return __n;
+        .                 }
+        .           
+        .                 static _GLIBCXX20_CONSTEXPR size_type
+        .                 _S_max_size(const _Tp_alloc_type& __a) _GLIBCXX_NOEXCEPT
+        .                 {
+-- line 1917 ----------------------------------------
+
+--------------------------------------------------------------------------------
+The following files chosen for auto-annotation could not be found:
+--------------------------------------------------------------------------------
+  ./math/../sysdeps/x86_64/fpu/e_logl.S
+  ./math/./math/w_logl_compat.c
+  ./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S
+  ./string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S
+
+--------------------------------------------------------------------------------
+Ir                   
+--------------------------------------------------------------------------------
+442,042,033 (95.35%)  events annotated
+

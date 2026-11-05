@@ -1,0 +1,11 @@
+impl,problem,reps,total_ms,us_per_call
+tlc,random_n5_m5_v9_s5,50,0.371791,7.43582
+tlc_naive,random_n5_m5_v9_s5,10,0.119332,11.9332
+tlc,random_n10_m5_v9_s10,50,1.40743,28.1485
+tlc_naive,random_n10_m5_v9_s10,10,0.798165,79.8165
+tlc,random_n20_m5_v9_s20,50,28.3947,567.895
+tlc_naive,random_n20_m5_v9_s20,10,17.2757,1727.57
+tlc,random_n40_m5_v9_s40,50,140.697,2813.94
+tlc_naive,random_n40_m5_v9_s40,10,188.658,18865.8
+tlc,random_n80_m5_v9_s80,50,2738.34,54766.8
+tlc_naive,random_n80_m5_v9_s80,10,2507.49,250749

@@ -1,0 +1,237 @@
+// cli.cpp аналога 2 (MaxAlgebraA / MaxAlgebraB поверх Eigen), доработанный для стенда.
+//
+// Режимы:
+//   cli bench [out.txt] [--seed S] [--reps R] [--shared]   исходный бенчмарк (n = 10..100 шаг 5)
+//   cli kernels <problem.txt>                               λ и (λ^{-1}A)* для C и всех A_k —
+//                                                           формат вывода как у `tlc kernels`
+//   cli time <problem.txt> <reps>                           CSV: impl,matrix,n,reps,ms_A,ms_B
+//
+// Что изменено относительно оригинала (см. original/cli.cpp и README стенда):
+//   FIX(A2-1) SpectralRadius принимал неконстантную ссылку — теперь const&.
+//   FIX(A2-2) Kleene делал лишнее умножение на последней итерации (A^n не нужна).
+//   FIX(A2-3) std::clock (процессорное время, грубая дискретность) -> steady_clock,
+//             медиана по R повторам вместо одного замера, прогрев.
+//   FIX(A2-4) random_device без seed -> фиксируемый --seed (воспроизводимость).
+//   FIX(A2-5) цикл по m `for (m = 100; m <= 100; m *= 10)` выполнялся один раз — m стал параметром.
+//   NEW       --shared: степени A^k считаются один раз и используются и для λ, и для
+//             звезды ((λ^{-1}A)^k = A^k / λ^k) — вдвое меньше умножений, но всё ещё O(n^4).
+//   NEW       режимы kernels/time — подача контрольных примеров из файлов.
+//   ВНИМАНИЕ: в линейной шкале элементы A^n растут как m^n; при m = 100 и n >= ~155
+//             double переполняется (λ = inf). В tlc это устранено (алгоритм Карпа в лог-шкале).
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <cstring>
+#include <fstream>
+#include <iomanip>
+#include <iostream>
+#include <random>
+#include <string>
+#include <vector>
+
+#include <eigen3/Eigen/Dense>
+
+#include "../lib/struct_a.h"
+#include "../lib/struct_b.h"
+#include "tlc/problem_io.hpp"  // общий формат входных файлов стенда (header-only)
+
+static Eigen::IOFormat LaTeXFormat(Eigen::FullPrecision, Eigen::DontAlignCols, " & ", "\\\\\n", "", "",
+                                   "\\begin{pmatrix}\n", "\n\\end{pmatrix}");
+
+template <typename T>
+using MatrixT = Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>;
+
+typedef MatrixT<MaxAlgebraA> MatrixA;
+typedef MatrixT<MaxAlgebraB> MatrixB;
+
+// ЕДИНСТВЕННОЕ место, зависящее от API struct_a.h / struct_b.h: перевод элемента
+// max-алгебры в double для печати. Если в типах нет operator double(), поправьте здесь.
+template <typename T>
+double to_double(const T &x) {
+    return static_cast<double>(x);
+}
+
+template <typename T>
+T SpectralRadius(const MatrixT<T> &matrix)  // FIX(A2-1)
+{
+    T result = matrix.trace();
+    MatrixT<T> matrix_pow(matrix);
+    for (int i = 2; i <= matrix.cols(); i++) {
+        matrix_pow *= matrix;
+        result += matrix_pow.trace().Root(i);
+    }
+    return result;
+}
+
+template <typename T>
+MatrixT<T> Kleene(const MatrixT<T> &matrix)
+{
+    auto n = matrix.cols();
+    MatrixT<T> result(MatrixT<T>::Identity(n, n));
+    MatrixT<T> matrix_pow(matrix);
+    for (int i = 1; i < n; i++) {
+        result += matrix_pow;
+        if (i + 1 < n) matrix_pow *= matrix;  // FIX(A2-2): A^n не используется
+    }
+    return result;
+}
+
+// NEW: одна серия степеней для λ и для звезды.
+template <typename T>
+std::pair<T, MatrixT<T>> SpectralRadiusAndKleene(const MatrixT<T> &A)
+{
+    const auto n = A.cols();
+    std::vector<MatrixT<T>> pw;  // A^1 .. A^n
+    pw.reserve(static_cast<std::size_t>(n));
+    pw.push_back(A);
+    T lambda = A.trace();
+    for (int i = 2; i <= n; i++) {
+        pw.push_back(pw.back() * A);
+        lambda += pw.back().trace().Root(i);
+    }
+    MatrixT<T> star(MatrixT<T>::Identity(n, n));
+    T lk = lambda;  // λ^k
+    for (int k = 1; k < n; k++) {
+        star += pw[static_cast<std::size_t>(k - 1)] / lk;
+        lk = lk * lambda;
+    }
+    return {lambda, star};
+}
+
+using namespace std;
+using Clock = std::chrono::steady_clock;
+
+template <typename F>
+static double median_ms(int reps, F &&f)  // FIX(A2-3)
+{
+    f();  // прогрев
+    std::vector<double> t;
+    for (int r = 0; r < reps; ++r) {
+        auto t0 = Clock::now();
+        f();
+        t.push_back(std::chrono::duration<double, std::milli>(Clock::now() - t0).count());
+    }
+    std::sort(t.begin(), t.end());
+    return t[t.size() / 2];
+}
+
+template <typename M>
+static M from_raw(const tlc::io::RawMatrix &r)
+{
+    using T = typename M::Scalar;
+    M X(r.n, r.n);
+    for (std::size_t i = 0; i < r.n; ++i)
+        for (std::size_t j = 0; j < r.n; ++j) {
+            const auto &q = r.at(i, j);
+            X(i, j) = (i == j) ? T(1) : T(typename std::conditional<std::is_same<T, MaxAlgebraA>::value, StructA, StructB>::type(
+                                                static_cast<int>(q.num), static_cast<int>(q.den)));
+        }
+    return X;
+}
+
+// n - matrix size, m - num limit; печатает: n m time_A time_B (мс, медиана)
+static void test(unsigned n, unsigned m, std::mt19937 &rng, int reps, bool shared, ofstream &output)
+{
+    std::uniform_int_distribution<std::mt19937::result_type> dist(1, m);
+    MatrixA A(n, n);
+    MatrixB B(n, n);
+    for (unsigned i = 0; i < n; i++) {
+        A(i, i) = MaxAlgebraA(1);
+        B(i, i) = MaxAlgebraB(1);
+        for (unsigned j = 0; j < i; j++) {
+            int numerator = static_cast<int>(dist(rng));
+            int denominator = static_cast<int>(dist(rng));
+            A(i, j) = StructA(numerator, denominator);
+            B(i, j) = StructB(numerator, denominator);
+            A(j, i) = StructA(denominator, numerator);
+            B(j, i) = StructB(denominator, numerator);
+        }
+    }
+    double ta, tb;
+    if (shared) {
+        ta = median_ms(reps, [&] { volatile auto r = SpectralRadiusAndKleene(A).second.rows(); (void)r; });
+        tb = median_ms(reps, [&] { volatile auto r = SpectralRadiusAndKleene(B).second.rows(); (void)r; });
+    } else {
+        ta = median_ms(reps, [&] { MatrixA r(Kleene((A / SpectralRadius(A)).eval())); });
+        tb = median_ms(reps, [&] { MatrixB r(Kleene((B / SpectralRadius(B)).eval())); });
+    }
+    output << n << " " << m << " " << ta << " " << tb << endl;
+    std::cout << n << " " << m << " " << ta << " " << tb << endl;
+}
+
+static int run_bench(int argc, char *argv[], int first)
+{
+    string output_file = "out.txt";
+    unsigned long seed = 2026;
+    int reps = 5;
+    bool shared = false;
+    unsigned m = 100, nmin = 10, nmax = 100, step = 5;
+    for (int i = first; i < argc; ++i) {  // first = 1 для старого вызова `cli out.txt`
+        string a = argv[i];
+        if (a == "--seed" && i + 1 < argc) seed = std::stoul(argv[++i]);
+        else if (a == "--reps" && i + 1 < argc) reps = std::stoi(argv[++i]);
+        else if (a == "--m" && i + 1 < argc) m = static_cast<unsigned>(std::stoul(argv[++i]));  // FIX(A2-5)
+        else if (a == "--nmax" && i + 1 < argc) nmax = static_cast<unsigned>(std::stoul(argv[++i]));
+        else if (a == "--shared") shared = true;
+        else output_file = a;
+    }
+    std::mt19937 rng(static_cast<std::mt19937::result_type>(seed));  // FIX(A2-4)
+    ofstream output(output_file);
+    output << "\"n\" \"m\" \"A\" \"B\"" << endl;
+    cout << "\"n\" \"m\" \"A\" \"B\"" << endl;
+    for (unsigned n = nmin; n <= nmax; n += step) test(n, m, rng, reps, shared, output);
+    return 0;
+}
+
+template <typename M>
+static void dump_kernels(const std::string &name, const tlc::io::RawMatrix &r)
+{
+    const M X = from_raw<M>(r);
+    const auto lambda = SpectralRadius(X);
+    const M S = Kleene((X / lambda).eval());
+    std::cout << name << ": lambda = " << std::setprecision(12) << to_double(lambda) << "\n" << std::fixed
+              << std::setprecision(6);
+    for (Eigen::Index i = 0; i < S.rows(); ++i) {
+        std::cout << "  [";
+        for (Eigen::Index j = 0; j < S.cols(); ++j) std::cout << (j ? " " : "") << std::setw(10) << to_double(S(i, j));
+        std::cout << " ]\n";
+    }
+    std::cout.unsetf(std::ios::fixed);
+}
+
+int main(int argc, char *argv[]) try
+{
+    const string cmd = argc >= 2 ? argv[1] : "bench";
+    if (cmd == "kernels" && argc >= 3) {  // формат совпадает с `tlc kernels`
+        const auto p = tlc::io::load_problem(argv[2]);
+        const bool useB = argc >= 4 && std::strcmp(argv[3], "--B") == 0;
+        auto dump = [&](const std::string &nm, const tlc::io::RawMatrix &r) {
+            if (useB) dump_kernels<MatrixB>(nm, r);
+            else dump_kernels<MatrixA>(nm, r);
+        };
+        dump("C", p.C);
+        for (std::size_t k = 0; k < p.A.size(); ++k) dump("A" + std::to_string(k + 1), p.A[k]);
+        return 0;
+    }
+    if (cmd == "time" && argc >= 4) {
+        const auto p = tlc::io::load_problem(argv[2]);
+        const int reps = std::stoi(argv[3]);
+        auto one = [&](const std::string &nm, const tlc::io::RawMatrix &r) {
+            const MatrixA A = from_raw<MatrixA>(r);
+            const MatrixB B = from_raw<MatrixB>(r);
+            const double ta = median_ms(reps, [&] { MatrixA x(Kleene((A / SpectralRadius(A)).eval())); });
+            const double tb = median_ms(reps, [&] { MatrixB x(Kleene((B / SpectralRadius(B)).eval())); });
+            std::cout << "analog2," << p.name << ":" << nm << "," << r.n << "," << reps << "," << ta << "," << tb << "\n";
+        };
+        one("C", p.C);
+        for (std::size_t k = 0; k < p.A.size(); ++k) one("A" + std::to_string(k + 1), p.A[k]);
+        return 0;
+    }
+    if (cmd == "bench" || cmd.rfind("--", 0) == 0 || cmd.find(".txt") != string::npos) return run_bench(argc, argv, cmd == "bench" ? 2 : 1);
+    std::cerr << "usage: cli bench [out.txt] [--seed S] [--reps R] [--m M] [--nmax N] [--shared]\n"
+                 "       cli kernels <problem.txt> [--B]\n       cli time <problem.txt> <reps>\n";
+    return 2;
+} catch (const std::exception &e) {
+    std::cerr << "error: " << e.what() << "\n";
+    return 1;
+}

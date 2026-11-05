@@ -1,0 +1,10 @@
+[ OK ] parser
+[ OK ] primitives
+[ OK ] task1 (§4.1)
+[ OK ] task2 (§4.2)
+[ OK ] job (§5.1)
+[ OK ] city (§5.2)
+[ OK ] belton-gear (§6)
+[ OK ] fast == naive
+[ OK ] invalid input
+16649 checks, 0 failed
